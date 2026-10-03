@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-pergaminos"
+version = "0.1.0"
+description = "学术论文检索与 OA 对账 MCP 服务器 —— 只报告元数据与获取路径，不下载全文"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "AGPL-3.0-or-later" }
+keywords = ["mcp", "academic", "open-access", "unpaywall", "crossref", "arxiv", "oa"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+
+dependencies = [
+    "mcp>=2.2",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+# socks5 代理支持（httpx 需要 socksio）
+socks = ["httpx[socks]>=0.27"]
+dev = [
+    "pytest>=8",
+]
+
+[project.urls]
+Homepage = "https://github.com/la-sandrone/mcp-pergaminos"
+
+[project.scripts]
+pergaminos = "pergaminos.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pergaminos"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# live 测试默认不跑：公开仓库的测试**不许要求真实 API key**
+addopts = "-m 'not live'"
+markers = [
+    "live: 需要真实网络与 API 凭据（PERGAMINOS_LIVE=1 时才跑，CI 不跑）",
+]
