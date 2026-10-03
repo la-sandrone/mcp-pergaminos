@@ -21,8 +21,10 @@ if [ -z "$DST" ]; then
 fi
 
 # ── 白名单：只有这些进得去 ────────────────────────────────────────────
+# 注意 .gitattributes 必须在这里，否则每次导出都会把它漏掉——
+# 而它恰恰是防"clone 后 .sh 变 CRLF"的那道保险，漏了等于没有。
 ALLOW_FILES=(
-  README.md LICENSE .env.example .gitignore
+  README.md LICENSE .env.example .gitignore .gitattributes
   pyproject.toml
 )
 ALLOW_DIRS=(
@@ -79,6 +81,15 @@ note ""
 #   闸门**永远无法通过**。而"误报会把闸门淹没、最后被人关掉"正是本脚本第 [3] 段
 #   特意避开的事——对凭据闸门同样成立。
 #   发布件的定义就是 $DST；扫它才等价于"将要发布的东西里没有凭据"。
+#
+# **所有扫 $DST 的闸门一律排除 .git**（grep 加 --exclude-dir=.git）。
+#   理由不是"省事"，是**可复现性**：.git 不是发布内容（git 自己也不会发布它），
+#   但它的内容随本地操作变化——remote URL、credential、reflog、COMMIT_EDITMSG。
+#   不排除则同一个代码树换个 remote 就能从"过"变"不过"，闸门退化成噪声。
+#   实测踩过：remote 从 HTTPS 换成 SSH 之后，邮箱闸门把 `.git/config` 里的
+#   `git@github.com`（SSH 的"用户名@主机"）判成真实邮箱直接 FAIL。
+#   注：gitleaks 自带忽略 .git（实测埋 AWS 格式 + 熵值型都不报），无需额外处理；
+#   scan_paths.py 另在自身 skip 条件里排除（见该文件）。
 # 强度对比（实测）：下面那条固定格式 PAT 抓不到 32 字符随机 key；
 #   gitleaks 的熵值规则（generic-api-key）抓得到。所以有 gitleaks 就该用。
 # 判据与分级见 dsh-skill-pack-security/secret-scan。
@@ -111,7 +122,7 @@ else
   warn "  gitleaks 未安装 → 降级 grep（**只覆盖当前树，覆盖不了已删除的历史**）"
 fi
 
-HITS=$(grep -rInE "$PAT" "$DST" 2>/dev/null | redact || true)
+HITS=$(grep -rInE --exclude-dir=.git "$PAT" "$DST" 2>/dev/null | redact || true)
 if [ -n "$HITS" ]; then
   bad "  凭据模式命中："
   printf '%s\n' "$HITS" | sed 's/^/      /'
@@ -135,7 +146,7 @@ if [ -n "$PY" ] && [ -f "$DST/tools/scan_paths.py" ]; then
   if "$PY" "$DST/tools/scan_paths.py" "$DST"; then :; else bad "  机器绝对路径（见上）"; fi
 else
   warn "  scan_paths.py 不可用，退回 grep（误报会较多）"
-  P_HIT=$(grep -rInE '/mnt/[a-z]/|/home/[A-Za-z]|C:\\\\Users' "$DST" 2>/dev/null \
+  P_HIT=$(grep -rInE --exclude-dir=.git '/mnt/[a-z]/|/home/[A-Za-z]|C:\\\\Users' "$DST" 2>/dev/null \
           | grep -vE '^\S+:\s*#' | grep -vE 'github\.com|docs\.|https?://' || true)
   if [ -n "$P_HIT" ]; then
     bad "  发现机器绝对路径："; printf '%s\n' "$P_HIT" | head -20 | sed 's/^/      /'
@@ -145,8 +156,12 @@ else
 fi
 
 # 真实邮箱：占位符放行（级C 判据 = 文件名或值含 example/xxx/placeholder）
-E_HIT=$(grep -rInoE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' "$DST" 2>/dev/null \
-        | grep -viE 'example\.(com|org)|@example|xxx|placeholder|you@|@your|noreply' || true)
+# 另豁免 **scp 风格的 SSH remote**（`git@github.com` 是"用户名@主机"，不是邮箱）。
+# 这条豁免是必需的，不是图省事：任何正常文档里写一句 `git clone git@github.com:…`
+# 都会命中，而"误报会把闸门淹没、最后被人关掉"。宿主名限定在代码托管域，
+# 不放宽成万能豁免（真邮箱不会是 @github.com）。
+E_HIT=$(grep -rInoE --exclude-dir=.git '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' "$DST" 2>/dev/null \
+        | grep -viE 'example\.(com|org)|@example|xxx|placeholder|you@|@your|noreply|git@(ssh\.)?(github|gitlab|bitbucket)\.(com|org)' || true)
 if [ -n "$E_HIT" ]; then
   bad "  发现疑似真实邮箱（若非占位符，请改为 example.com）："
   printf '%s\n' "$E_HIT" | sed 's/^/      /'

@@ -83,7 +83,7 @@ def scan(root: Path) -> list[tuple[str, int, str]]:
     for f in sorted(root.rglob("*")):
         if f.suffix not in (".py", ".sh", ".json", ".toml", ".yml", ".yaml"):
             continue
-        if "__pycache__" in f.parts or ".bak" in f.name:
+        if "__pycache__" in f.parts or ".bak" in f.name or ".git" in f.parts:
             continue
         for lineno, s in (code_strings(f) if f.suffix == ".py"
                           else [(i, ln) for i, ln in
